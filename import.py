@@ -3,115 +3,30 @@ import pandas as pd
 import os
 import zipfile
 import yaml
-from io import BytesIO
-import re
+import shutil
 from bs4 import BeautifulSoup
+from io import BytesIO
 
-# Function to process MDX files (GitHub, Mintlify, Fern)
-def process_mdx_zip(uploaded_file, process_docs_yaml=False):
-    temp_dir = "temp_mdx_files"
+# -------------------- HELPER FUNCTIONS -------------------- #
+
+def convert_zendesk_csv_to_markdown(df):
+    """Convert Zendesk CSV to Markdown files with SUMMARY.md"""
+    temp_dir = "converted_zendesk"
     os.makedirs(temp_dir, exist_ok=True)
 
-    with zipfile.ZipFile(uploaded_file, "r") as zip_ref:
-        zip_ref.extractall(temp_dir)
-
-    summary_structure = {}
-
-    # Check for docs.yml if processing Fern
-    docs_yaml_path = os.path.join(temp_dir, "docs.yml")
-    summary_md_content = None
-
-    if process_docs_yaml and os.path.exists(docs_yaml_path):
-        with open(docs_yaml_path, "r", encoding="utf-8") as f:
-            yaml_content = f.read()
-            summary_md_content = parse_docs_yaml(yaml_content)
-    
-    # Process MDX files
-    for root, _, files in os.walk(temp_dir):
-        for file in files:
-            if file.endswith(".mdx"):
-                file_path = os.path.join(root, file)
-                section = os.path.basename(root)  # Use folder name as section
-
-                with open(file_path, "r", encoding="utf-8") as f:
-                    mdx_content = f.read()
-
-                markdown_content = convert_mdx_to_markdown(mdx_content)
-
-                safe_title = os.path.splitext(file)[0].replace(" ", "-").lower()
-                new_filename = f"{safe_title}.md"
-
-                section_folder = os.path.join(temp_dir, section)
-                os.makedirs(section_folder, exist_ok=True)
-
-                with open(os.path.join(section_folder, new_filename), "w", encoding="utf-8") as f:
-                    f.write(markdown_content)
-
-                if section not in summary_structure:
-                    summary_structure[section] = []
-                summary_structure[section].append((safe_title, f"{section}/{new_filename}"))
-
-    # Create SUMMARY.md (Use docs.yml if available)
-    summary_path = os.path.join(temp_dir, "SUMMARY.md")
-
-    if summary_md_content:
-        with open(summary_path, "w", encoding="utf-8") as summary_file:
-            summary_file.write(summary_md_content)
-    else:
-        summary_content = "# Summary\n\n"
-        for section, pages in summary_structure.items():
-            summary_content += f"## {section}\n"
-            for title, path in pages:
-                summary_content += f"* [{title}]({path})\n"
-            summary_content += "\n"
-
-        with open(summary_path, "w", encoding="utf-8") as summary_file:
-            summary_file.write(summary_content)
-
-    # Create ZIP
-    zip_buffer = BytesIO()
-    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
-        for root, _, files in os.walk(temp_dir):
-            for file in files:
-                full_path = os.path.join(root, file)
-                arcname = os.path.relpath(full_path, temp_dir)
-                zipf.write(full_path, arcname)
-
-    for root, _, files in os.walk(temp_dir, topdown=False):
-        for file in files:
-            os.remove(os.path.join(root, file))
-        os.rmdir(root)
-
-    zip_buffer.seek(0)
-    return zip_buffer
-
-# Convert MDX to Markdown
-def convert_mdx_to_markdown(mdx_content):
-    mdx_content = re.sub(r'<Callout>(.*?)</Callout>', r'{% hint style="info" %}\n\1\n{% endhint %}', mdx_content, flags=re.DOTALL)
-    return mdx_content
-
-# Function to process CSV from Zendesk
-def process_csv_file(uploaded_csv):
-    temp_dir = "temp_csv_files"
-    os.makedirs(temp_dir, exist_ok=True)
-
-    df = pd.read_csv(uploaded_csv)
-    
     if not all(col in df.columns for col in ["Article Body", "Section", "Article Title"]):
-        st.error("CSV must contain `Article Body`, `Section`, and `Article Title` columns.")
+        st.error("CSV must contain 'Article Body', 'Section', and 'Article Title'.")
         return None
 
     summary_structure = {}
 
     for index, row in df.iterrows():
-        title = re.sub(r'\d+', '', row["Article Title"])
+        title = row["Article Title"]
         body = row["Article Body"]
         section = row["Section"]
 
-        markdown_content = f"# {title}\n\n{body}"
-
-        safe_title = "".join(c for c in title if c.isalnum() or c in " -_").rstrip().replace(" ", "-").lower()
-        filename = f"{safe_title or 'article'}.md"
+        safe_title = title.replace(" ", "-").lower()
+        filename = f"{safe_title}.md"
 
         safe_section = section.replace(" ", "-").lower()
         section_folder = os.path.join(temp_dir, safe_section)
@@ -119,7 +34,7 @@ def process_csv_file(uploaded_csv):
 
         file_path = os.path.join(section_folder, filename)
         with open(file_path, "w", encoding="utf-8") as f:
-            f.write(markdown_content)
+            f.write(f"# {title}\n\n{body}")
 
         if section not in summary_structure:
             summary_structure[section] = []
@@ -135,67 +50,122 @@ def process_csv_file(uploaded_csv):
     with open(os.path.join(temp_dir, "SUMMARY.md"), "w", encoding="utf-8") as summary_file:
         summary_file.write(summary_content)
 
-    zip_buffer = BytesIO()
-    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
-        for root, _, files in os.walk(temp_dir):
-            for file in files:
-                full_path = os.path.join(root, file)
-                arcname = os.path.relpath(full_path, temp_dir)
-                zipf.write(full_path, arcname)
+    return temp_dir
 
-    for root, _, files in os.walk(temp_dir, topdown=False):
-        for file in files:
-            os.remove(os.path.join(root, file))
-        os.rmdir(root)
+def convert_mdx_to_md(mdx_path, base_dir, output_dir):
+    """Convert MDX files to Markdown"""
+    full_path = os.path.join(base_dir, mdx_path)
+    if os.path.exists(full_path) and full_path.endswith(".mdx"):
+        with open(full_path, "r", encoding="utf-8") as file:
+            mdx_content = file.read()
 
-    zip_buffer.seek(0)
-    return zip_buffer
+        md_content = "\n".join(
+            line for line in mdx_content.splitlines()
+            if not line.strip().startswith(("import", "export"))
+        )
 
-# Function to convert Fern docs.yml → SUMMARY.md
-def extract_structure(data, summary_lines, level=2):
+        markdown_filename = os.path.basename(mdx_path).replace(".mdx", ".md")
+        output_file_path = os.path.join(output_dir, markdown_filename)
+
+        with open(output_file_path, "w", encoding="utf-8") as output_file:
+            output_file.write(md_content)
+
+        return markdown_filename
+    return None
+
+def extract_structure_from_yaml(data, summary_lines, base_dir, output_dir, level=2):
+    """Extract sections and pages from docs.yml"""
     if isinstance(data, list):
         for item in data:
-            extract_structure(item, summary_lines, level)
+            extract_structure_from_yaml(item, summary_lines, base_dir, output_dir, level)
     elif isinstance(data, dict):
         if "section" in data:
             summary_lines.append(f"{'#' * level} {data['section']}\n")
+
         if "page" in data and "path" in data:
-            summary_lines.append(f"* [{data['page']}]({data['path']})\n")
+            markdown_path = convert_mdx_to_md(data["path"], base_dir, output_dir)
+            if markdown_path:
+                summary_lines.append(f"* [{data['page']}]({markdown_path})\n")
+
         for key, value in data.items():
             if isinstance(value, (list, dict)):
-                extract_structure(value, summary_lines, level + 1)
+                extract_structure_from_yaml(value, summary_lines, base_dir, output_dir, level + 1)
 
-def parse_docs_yaml(yaml_content):
+def convert_fern_yaml(yaml_content, base_dir):
+    """Parse Fern's docs.yml and convert MDX files to Markdown"""
     try:
         data = yaml.safe_load(yaml_content)
         summary_lines = ["# Table of contents\n"]
-        extract_structure(data, summary_lines)
-        return "\n".join(summary_lines)
+        output_dir = "converted_fern"
+        if os.path.exists(output_dir):
+            shutil.rmtree(output_dir)
+        os.makedirs(output_dir, exist_ok=True)
+
+        extract_structure_from_yaml(data, summary_lines, base_dir, output_dir)
+        summary_md = "\n".join(summary_lines)
+
+        with open(os.path.join(output_dir, "SUMMARY.md"), "w", encoding="utf-8") as summary_file:
+            summary_file.write(summary_md)
+
+        return output_dir
     except Exception as e:
-        return f"Error parsing YAML: {e}"
+        return None
 
-# Streamlit UI
-def main():
-    st.title("Import & Convert Documentation")
+def zip_directory(directory):
+    """Zip all files in a directory"""
+    zip_buffer = BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
+        for root, _, files in os.walk(directory):
+            for file_name in files:
+                full_path = os.path.join(root, file_name)
+                arcname = os.path.relpath(full_path, directory)
+                zipf.write(full_path, arcname)
+    zip_buffer.seek(0)
+    return zip_buffer
 
-    import_source = st.selectbox(
-        "Choose your source",
-        ["GitHub (MDX & HTML)", "Mintlify (MDX)", "Fern (MDX + docs.yml)", "Zendesk (CSV)"]
-    )
+# -------------------- STREAMLIT APP -------------------- #
 
-    uploaded_file = st.file_uploader("Upload a ZIP or CSV file", type=["zip", "csv"])
+st.title("📥 Super Importer: Convert Zendesk, Mintlify & Fern to GitBook")
 
-    if uploaded_file and st.button("Process File"):
-        if import_source in ["GitHub (MDX & HTML)", "Mintlify (MDX)"]:
-            zip_buffer = process_mdx_zip(uploaded_file)
-        elif import_source == "Fern (MDX + docs.yml)":
-            zip_buffer = process_mdx_zip(uploaded_file, process_docs_yaml=True)
-        elif import_source == "Zendesk (CSV)":
-            zip_buffer = process_csv_file(uploaded_file)
+source = st.selectbox("Select your source:", ["Zendesk CSV", "Mintlify (MDX)", "Fern (docs.yml)"])
 
-        if zip_buffer:
-            st.success(f"{import_source} processed successfully!")
-            st.download_button("Download Markdown ZIP", zip_buffer, "processed_markdown.zip", "application/zip")
+if source == "Zendesk CSV":
+    uploaded_file = st.file_uploader("Upload Zendesk CSV", type=["csv"])
+    if uploaded_file:
+        df = pd.read_csv(uploaded_file)
+        converted_dir = convert_zendesk_csv_to_markdown(df)
 
-if __name__ == "__main__":
-    main()
+        if converted_dir:
+            zip_buffer = zip_directory(converted_dir)
+            st.success("✅ Zendesk converted successfully!")
+            st.download_button("Download Converted Files", zip_buffer, "zendesk_markdown.zip", "application/zip")
+
+elif source == "Mintlify (MDX)":
+    uploaded_files = st.file_uploader("Upload Mintlify MDX files", type=["mdx"], accept_multiple_files=True)
+    if uploaded_files:
+        output_dir = "converted_mintlify"
+        os.makedirs(output_dir, exist_ok=True)
+
+        for uploaded_file in uploaded_files:
+            mdx_content = uploaded_file.read().decode("utf-8")
+            md_filename = uploaded_file.name.replace(".mdx", ".md")
+
+            with open(os.path.join(output_dir, md_filename), "w", encoding="utf-8") as md_file:
+                md_file.write(mdx_content)
+
+        zip_buffer = zip_directory(output_dir)
+        st.success("✅ Mintlify files converted successfully!")
+        st.download_button("Download Converted Files", zip_buffer, "mintlify_markdown.zip", "application/zip")
+
+elif source == "Fern (docs.yml)":
+    uploaded_yaml = st.file_uploader("Upload Fern docs.yml", type=["yml", "yaml"])
+    base_directory = st.text_input("Base directory for MDX files", value="docs")
+
+    if uploaded_yaml:
+        yaml_content = uploaded_yaml.read().decode("utf-8")
+        converted_dir = convert_fern_yaml(yaml_content, base_directory)
+
+        if converted_dir:
+            zip_buffer = zip_directory(converted_dir)
+            st.success("✅ Fern files converted successfully!")
+            st.download_button("Download Converted Files", zip_buffer, "fern_markdown.zip", "application/zip")
