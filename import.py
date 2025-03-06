@@ -12,7 +12,11 @@ def extract_zip(uploaded_file, extract_to="temp_extracted"):
     """Extracts uploaded ZIP file"""
     temp_dir = extract_to
     if os.path.exists(temp_dir):
-        shutil.rmtree(temp_dir)
+        try:
+            shutil.rmtree(temp_dir)
+        except OSError as e:
+            st.error(f"Error removing directory: {e}")
+            return None
     os.makedirs(temp_dir)
 
     with zipfile.ZipFile(uploaded_file, "r") as zip_ref:
@@ -112,33 +116,24 @@ def extract_structure_from_yaml(data, summary_lines, base_dir, output_dir, level
                 extract_structure_from_yaml(value, summary_lines, base_dir, output_dir, level + 1)
 
 def convert_fern_yaml(yaml_folder):
-    """Parse docs.yml, convert MDX files, and generate SUMMARY.md"""
+    """Convert all MDX files in the extracted ZIP to Markdown"""
     temp_dir = "converted_fern"
     if os.path.exists(temp_dir):
-        shutil.rmtree(temp_dir)
+        try:
+            shutil.rmtree(temp_dir)
+        except OSError as e:
+            st.error(f"Error removing directory: {e}")
+            return None
     os.makedirs(temp_dir, exist_ok=True)
 
-    yaml_path = os.path.join(yaml_folder, "docs.yml")
-
-    try:
-      with open(yaml_path, "r", encoding="utf-8") as f:
-          yaml_content = yaml.safe_load(f)
-
-      summary_lines = ["# Table of contents\n"]
-      extract_structure_from_yaml(yaml_content, summary_lines, yaml_folder, temp_dir)
-
-      with open(os.path.join(temp_dir, "SUMMARY.md"), "w", encoding="utf-8") as summary_file:
-          summary_file.write("\n".join(summary_lines))
-    except FileNotFoundError:
-        #if docs.yml file is not found, convert all mdx files to md.
-        convert_mdx_to_md(yaml_folder, temp_dir)
-        summary_lines = ["# Table of contents\n"]
-        for md_file in os.listdir(temp_dir):
-            if md_file.endswith(".md"):
-                md_file_name = md_file.replace(".md", "")
-                summary_lines.append(f"* [{md_file_name}]({md_file})\n")
-        with open(os.path.join(temp_dir, "SUMMARY.md"), "w", encoding="utf-8") as summary_file:
-            summary_file.write("\n".join(summary_lines))
+    convert_mdx_to_md(yaml_folder, temp_dir)
+    summary_lines = ["# Table of contents\n"]
+    for md_file in os.listdir(temp_dir):
+        if md_file.endswith(".md"):
+            md_file_name = md_file.replace(".md", "")
+            summary_lines.append(f"* [{md_file_name}]({md_file})\n")
+    with open(os.path.join(temp_dir, "SUMMARY.md"), "w", encoding="utf-8") as summary_file:
+        summary_file.write("\n".join(summary_lines))
 
     return temp_dir
 
@@ -163,13 +158,17 @@ source = st.selectbox("Select your source:", ["Zendesk ZIP", "Mintlify ZIP", "Fe
 uploaded_zip = st.file_uploader("Upload ZIP file", type=["zip"])
 if uploaded_zip:
     extracted_dir = extract_zip(uploaded_zip, extract_to="extracted_files")
+    if extracted_dir:
+        if source == "Zendesk ZIP":
+            converted_dir = convert_zendesk_csv_to_markdown(extracted_dir)
+        elif source == "Mintlify ZIP":
+            converted_dir = convert_mdx_to_md(extracted_dir, "converted_mintlify")
+        elif source == "Fern ZIP":
+            converted_dir = convert_fern_yaml(extracted_dir)
 
-    if source == "Zendesk ZIP":
-        converted_dir = convert_zendesk_csv_to_markdown(extracted_dir)
-    elif source == "Mintlify ZIP":
-        converted_dir = convert_mdx_to_md(extracted_dir, "converted_mintlify")
-    elif source == "Fern ZIP":
-        converted_dir = convert_fern_yaml(extracted_dir)
-
-    if converted_dir:
-        zip_
+        if converted_dir:
+            zip_buffer = zip_directory(converted_dir)
+            st.success("✅ Conversion successful!")
+            st.download_button("Download Converted Files", zip_buffer, f"{source.lower().replace(' ', '_')}_markdown.zip", "application/zip")
+            st.session_state.converted_dir = converted_dir # Add this line.
+            st.
