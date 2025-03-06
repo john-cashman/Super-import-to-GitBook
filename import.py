@@ -170,4 +170,5 @@ def extract_structure_json_summary(data, summary_lines, level=2, indent=""):
         for item in data:
             extract_structure_json_summary(item, summary_lines, level, indent)
     elif isinstance(data, dict):
-        if
+        if "dropdown" in data:
+            summary_lines.append(f"{'#' * level} {data['dropdown']}\
