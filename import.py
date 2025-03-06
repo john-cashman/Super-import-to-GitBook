@@ -169,6 +169,4 @@ if uploaded_zip:
         if converted_dir:
             zip_buffer = zip_directory(converted_dir)
             st.success("✅ Conversion successful!")
-            st.download_button("Download Converted Files", zip_buffer, f"{source.lower().replace(' ', '_')}_markdown.zip", "application/zip")
-            st.session_state.converted_dir = converted_dir # Add this line.
-            st.
+            st.download_button("Download Converted Files", zip_buffer, f"{source.lower().
