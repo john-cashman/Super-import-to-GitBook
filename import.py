@@ -151,5 +151,21 @@ def zip_directory(directory):
 # -------------------- SUMMARY.md GENERATOR FUNCTIONS -------------------- #
 
 def extract_structure_yaml_summary(data, summary_lines, level=2, indent=""):
-    # ... (Your existing extract_structure_yaml function)
-#rest of code remains the same.
+    """Recursively extracts section, page, and path from the YAML structure."""
+    if isinstance(data, list):
+        for item in data:
+            extract_structure_yaml_summary(item, summary_lines, 2, indent)
+    elif isinstance(data, dict):
+        if "section" in data:
+            summary_lines.append(f"## {data['section']}\n")
+        if "page" in data and "path" in data:
+            summary_lines.append(f"{indent}* [{data['page']}]({data['path']})\n")
+        for key, value in data.items():
+            if isinstance(value, (list, dict)):
+                extract_structure_yaml_summary(value, summary_lines, 2, indent + "  ")
+
+def extract_structure_json_summary(data, summary_lines, level=2, indent=""):
+    """Recursively extracts groups and pages from the Mintlify JSON structure with indentation."""
+    if isinstance(data, list):
+        for item in data:
+            extract_structure_json_summary(item, summary_lines, level,
