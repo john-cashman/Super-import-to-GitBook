@@ -168,4 +168,7 @@ def extract_structure_json_summary(data, summary_lines, level=2, indent=""):
     """Recursively extracts groups and pages from the Mintlify JSON structure with indentation."""
     if isinstance(data, list):
         for item in data:
-            extract_structure_json_summary(item, summary
+            extract_structure_json_summary(item, summary_lines, level, indent)
+    elif isinstance(data, dict):
+        if "dropdown" in data:
+            summary_lines.append(f"{
