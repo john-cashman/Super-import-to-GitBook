@@ -91,81 +91,16 @@ def convert_mdx_to_md(mdx_folder, output_dir):
 
     return output_dir
 
-def extract_structure_from_yaml(data, summary_lines, base_dir, output_dir, level=2):
-    """Extracts sections/pages from Fern docs.yml and converts them"""
-    if isinstance(data, list):
-        for item in data:
-            extract_structure_from_yaml(item, summary_lines, base_dir, output_dir, level)
-    elif isinstance(data, dict):
-        if "section" in data:
-            summary_lines.append(f"{'#' * level} {data['section']}\n")
-
-        if "page" in data and "path" in data:
-            md_path = os.path.join(base_dir, data["path"])
-            md_filename = os.path.basename(md_path).replace(".mdx", ".md")
-            md_dest = os.path.join(output_dir, md_filename)
-
-            if os.path.exists(md_path):
-                shutil.copy(md_path, md_dest)
-                summary_lines.append(f"* [{data['page']}]({md_filename})\n")
-
-        for key, value in data.items():
-            if isinstance(value, (list, dict)):
-                extract_structure_from_yaml(value, summary_lines, base_dir, output_dir, level + 1)
-
-def convert_fern_yaml(yaml_folder):
-    """Parse docs.yml, convert MDX files, and generate SUMMARY.md"""
-    temp_dir = "converted_fern"
-    if os.path.exists(temp_dir):
-        shutil.rmtree(temp_dir)
-    os.makedirs(temp_dir, exist_ok=True)
-
-    yaml_path = os.path.join(yaml_folder, "docs.yml")
-    if not os.path.exists(yaml_path):
-        st.error("docs.yml not found in uploaded ZIP.")
-        return None
-
-    with open(yaml_path, "r", encoding="utf-8") as f:
-        yaml_content = yaml.safe_load(f)
-
-    summary_lines = ["# Table of contents\n"]
-    extract_structure_from_yaml(yaml_content, summary_lines, yaml_folder, temp_dir)
-
-    with open(os.path.join(temp_dir, "SUMMARY.md"), "w", encoding="utf-8") as summary_file:
-        summary_file.write("\n".join(summary_lines))
-
-    return temp_dir
-
-def zip_directory(directory):
-    """Zip all files in a directory"""
-    zip_buffer = BytesIO()
-    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
-        for root, _, files in os.walk(directory):
-            for file_name in files:
-                full_path = os.path.join(root, file_name)
-                arcname = os.path.relpath(full_path, directory)
-                zipf.write(full_path, arcname)
-    zip_buffer.seek(0)
-    return zip_buffer
-
-# -------------------- SUMMARY.md GENERATOR FUNCTIONS -------------------- #
-
-def extract_structure_yaml_summary(data, summary_lines, level=2, indent=""):
-    """Recursively extracts section, page, and path from the YAML structure."""
-    if isinstance(data, list):
-        for item in data:
-            extract_structure_yaml_summary(item, summary_lines, 2, indent)
-    elif isinstance(data, dict):
-        if "section" in data:
-            summary_lines.append(f"## {data['section']}\n")
-        if "page" in data and "path" in data:
-            summary_lines.append(f"{indent}* [{data['page']}]({data['path']})\n")
-        for key, value in data.items():
-            if isinstance(value, (list, dict)):
-                extract_structure_yaml_summary(value, summary_lines, 2, indent + "  ")
-
 def extract_structure_json_summary(data, summary_lines, level=2, indent=""):
     """Recursively extracts groups and pages from the Mintlify JSON structure with indentation."""
     if isinstance(data, list):
         for item in data:
-            extract_structure_json_summary
+            extract_structure_json_summary(item, summary_lines, level, indent)
+    elif isinstance(data, dict):
+        if "group" in data:
+            summary_lines.append(f"{'#' * level} {data['group']}\n")
+        if "page" in data and "path" in data:
+            summary_lines.append(f"{indent}* [{data['page']}]({data['path']})\n")
+        for key, value in data.items():
+            if isinstance(value, (list, dict)):
+                extract_structure_json_summary(value, summary_lines, level + 1, indent + "  ")
