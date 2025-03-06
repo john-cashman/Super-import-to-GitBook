@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import os
 import zipfile
-import yaml
 import shutil
 from io import BytesIO
 
@@ -93,50 +92,6 @@ def convert_mdx_to_md(mdx_folder, output_dir):
 
     return output_dir
 
-def extract_structure_from_yaml(data, summary_lines, base_dir, output_dir, level=2):
-    """Extracts sections/pages from Fern docs.yml and converts them"""
-    if isinstance(data, list):
-        for item in data:
-            extract_structure_from_yaml(item, summary_lines, base_dir, output_dir, level)
-    elif isinstance(data, dict):
-        if "section" in data:
-            summary_lines.append(f"{'#' * level} {data['section']}\n")
-
-        if "page" in data and "path" in data:
-            md_path = os.path.join(base_dir, data["path"])
-            md_filename = os.path.basename(md_path).replace(".mdx", ".md")
-            md_dest = os.path.join(output_dir, md_filename)
-
-            if os.path.exists(md_path):
-                shutil.copy(md_path, md_dest)
-                summary_lines.append(f"* [{data['page']}]({md_filename})\n")
-
-        for key, value in data.items():
-            if isinstance(value, (list, dict)):
-                extract_structure_from_yaml(value, summary_lines, base_dir, output_dir, level + 1)
-
-def convert_fern_yaml(yaml_folder):
-    """Convert all MDX files in the extracted ZIP to Markdown"""
-    temp_dir = "converted_fern"
-    if os.path.exists(temp_dir):
-        try:
-            shutil.rmtree(temp_dir)
-        except OSError as e:
-            st.error(f"Error removing directory: {e}")
-            return None
-    os.makedirs(temp_dir, exist_ok=True)
-
-    convert_mdx_to_md(yaml_folder, temp_dir)
-    summary_lines = ["# Table of contents\n"]
-    for md_file in os.listdir(temp_dir):
-        if md_file.endswith(".md"):
-            md_file_name = md_file.replace(".md", "")
-            summary_lines.append(f"* [{md_file_name}]({md_file})\n")
-    with open(os.path.join(temp_dir, "SUMMARY.md"), "w", encoding="utf-8") as summary_file:
-        summary_file.write("\n".join(summary_lines))
-
-    return temp_dir
-
 def zip_directory(directory):
     """Zip all files in a directory"""
     zip_buffer = BytesIO()
@@ -153,7 +108,7 @@ def zip_directory(directory):
 
 st.title("📥 Super Importer: Upload ZIP & Convert to GitBook")
 
-source = st.selectbox("Select your source:", ["Zendesk ZIP", "Mintlify ZIP", "Fern ZIP"])
+source = st.selectbox("Select your source:", ["Zendesk ZIP", "MDX ZIP"])
 
 uploaded_zip = st.file_uploader("Upload ZIP file", type=["zip"])
 if uploaded_zip:
@@ -161,10 +116,8 @@ if uploaded_zip:
     if extracted_dir:
         if source == "Zendesk ZIP":
             converted_dir = convert_zendesk_csv_to_markdown(extracted_dir)
-        elif source == "Mintlify ZIP":
-            converted_dir = convert_mdx_to_md(extracted_dir, "converted_mintlify")
-        elif source == "Fern ZIP":
-            converted_dir = convert_fern_yaml(extracted_dir)
+        elif source == "MDX ZIP":
+            converted_dir = convert_mdx_to_md(extracted_dir, "converted_mdx")
 
         if converted_dir:
             zip_buffer = zip_directory(converted_dir)
@@ -172,4 +125,4 @@ if uploaded_zip:
             st.download_button("Download Converted Files", zip_buffer, f"{source.lower().replace(' ', '_')}_markdown.zip", "application/zip")
             st.session_state.converted_dir = converted_dir
             st.session_state.extracted_dir = extracted_dir
-            st.session_
+            st.session_state.source = source
