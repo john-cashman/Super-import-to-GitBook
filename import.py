@@ -119,18 +119,26 @@ def convert_fern_yaml(yaml_folder):
     os.makedirs(temp_dir, exist_ok=True)
 
     yaml_path = os.path.join(yaml_folder, "docs.yml")
-    if not os.path.exists(yaml_path):
-        st.error("docs.yml not found in uploaded ZIP.")
-        return None
 
-    with open(yaml_path, "r", encoding="utf-8") as f:
-        yaml_content = yaml.safe_load(f)
+    try:
+      with open(yaml_path, "r", encoding="utf-8") as f:
+          yaml_content = yaml.safe_load(f)
 
-    summary_lines = ["# Table of contents\n"]
-    extract_structure_from_yaml(yaml_content, summary_lines, yaml_folder, temp_dir)
+      summary_lines = ["# Table of contents\n"]
+      extract_structure_from_yaml(yaml_content, summary_lines, yaml_folder, temp_dir)
 
-    with open(os.path.join(temp_dir, "SUMMARY.md"), "w", encoding="utf-8") as summary_file:
-        summary_file.write("\n".join(summary_lines))
+      with open(os.path.join(temp_dir, "SUMMARY.md"), "w", encoding="utf-8") as summary_file:
+          summary_file.write("\n".join(summary_lines))
+    except FileNotFoundError:
+        #if docs.yml file is not found, convert all mdx files to md.
+        convert_mdx_to_md(yaml_folder, temp_dir)
+        summary_lines = ["# Table of contents\n"]
+        for md_file in os.listdir(temp_dir):
+            if md_file.endswith(".md"):
+                md_file_name = md_file.replace(".md", "")
+                summary_lines.append(f"* [{md_file_name}]({md_file})\n")
+        with open(os.path.join(temp_dir, "SUMMARY.md"), "w", encoding="utf-8") as summary_file:
+            summary_file.write("\n".join(summary_lines))
 
     return temp_dir
 
@@ -164,9 +172,4 @@ if uploaded_zip:
         converted_dir = convert_fern_yaml(extracted_dir)
 
     if converted_dir:
-        zip_buffer = zip_directory(converted_dir)
-        st.success("✅ Conversion successful!")
-        st.download_button("Download Converted Files", zip_buffer, f"{source.lower().replace(' ', '_')}_markdown.zip", "application/zip")
-        st.session_state.converted_dir = converted_dir # Add this line.
-        st.session_state.extracted_dir = extracted_dir #Add this line.
-        st.session_state.source = source #add this line.
+        zip_
